@@ -4,8 +4,9 @@ import os
 load_dotenv()
 
 # ── LLM ──────────────────────────────────────────
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-MODEL = os.getenv("MODEL", "claude-sonnet-4-20250514")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+MODEL = "google/gemini-1.5-flash-8b"
+TEMPERATURE = 0.3
 
 # ── Telegram ─────────────────────────────────────
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -22,13 +23,12 @@ EMAIL_FROM = os.getenv("EMAIL_FROM", SMTP_USER)
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 # ── MCP ───────────────────────────────────────────
-MCP_SERVER_HOST = os.getenv("MCP_SERVER_HOST", "localhost")
-MCP_SERVER_PORT = int(os.getenv("MCP_SERVER_PORT", "8000"))
+
 
 # ── Validación al arrancar ────────────────────────
 def validate():
     required = {
-        "ANTHROPIC_API_KEY": ANTHROPIC_API_KEY,
+        "GOOGLE_API_KEY": GOOGLE_API_KEY,
         "TELEGRAM_BOT_TOKEN": TELEGRAM_BOT_TOKEN,
         "TELEGRAM_CHAT_ID": TELEGRAM_CHAT_ID,
         "SMTP_USER": SMTP_USER,
