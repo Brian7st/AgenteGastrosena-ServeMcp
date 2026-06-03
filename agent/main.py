@@ -3,8 +3,9 @@ import asyncio
 import os
 import sys
 from mcp import StdioServerParameters
+from mirascope import llm
 from mirascope.llm.mcp import stdio_client
-from mirascope.llm import call, tool
+from mirascope.llm import call 
 from agent.prompts import SYSTEM_PROMPT
 from config import GOOGLE_API_KEY, MODEL, TEMPERATURE
 
@@ -18,14 +19,7 @@ MCP_SERVER = StdioServerParameters(
 MAX_ITER = 5
 
 
-@tool
-def calcular_total_mesa(subtotal: float) -> dict:
-    """Calcula el total de una mesa aplicando IVA del 19% y propina sugerida del 10%.
 
-    Args:
-        subtotal: El valor antes de impuestos en pesos colombianos.
-    """
-    pass
 
 async def run_agent(user_message: str):
     async with stdio_client(MCP_SERVER) as client:
@@ -33,7 +27,7 @@ async def run_agent(user_message: str):
 
         @call(
             MODEL,
-            tools=[*tools, calcular_total_mesa],
+            tools=[*tools],
             system=SYSTEM_PROMPT,
             call_params={"temperature": TEMPERATURE},
         )
@@ -58,12 +52,9 @@ async def run_agent(user_message: str):
                 args = tool_call.args if isinstance(tool_call.args, dict) else {}
                 print(f"-> Tool: {tool_call.name} | args: {args}")
 
-                if tool_call.name == "calcular_total_mesa":
-                    resultado = calcular_total_mesa(**args)
-                    contenido = str(resultado)
-                else:
-                    result = await client.session.call_tool(tool_call.name, args)
-                    contenido = result.content[0].text if result.content else "sin resultado"
+                
+                result = await client.session.call_tool(tool_call.name, args)
+                contenido = result.content[0].text if result.content else "sin resultado"
 
                 resultados.append(f"Tool '{tool_call.name}' retorno: {contenido}")
 
