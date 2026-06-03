@@ -4,8 +4,8 @@ import os
 load_dotenv()
 
 # ── LLM ──────────────────────────────────────────
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-MODEL = "google/gemini-1.5-flash-8b"
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+MODEL = "openai/llama-3.3-70b-versatile"
 TEMPERATURE = 0.3
 
 # ── Telegram ─────────────────────────────────────
@@ -28,7 +28,7 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 # ── Validación al arrancar ────────────────────────
 def validate():
     required = {
-        "GOOGLE_API_KEY": GOOGLE_API_KEY,
+        "GROQ_API_KEY": GROQ_API_KEY,
         "TELEGRAM_BOT_TOKEN": TELEGRAM_BOT_TOKEN,
         "TELEGRAM_CHAT_ID": TELEGRAM_CHAT_ID,
         "SMTP_USER": SMTP_USER,

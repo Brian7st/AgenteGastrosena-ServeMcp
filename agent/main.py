@@ -1,15 +1,15 @@
- 
 import asyncio
 import os
 import sys
 from mcp import StdioServerParameters
-from mirascope import llm
 from mirascope.llm.mcp import stdio_client
-from mirascope.llm import call 
+from mirascope.llm import call
 from agent.prompts import SYSTEM_PROMPT
-from config import GOOGLE_API_KEY, MODEL, TEMPERATURE
+from config import GROQ_API_KEY, MODEL, TEMPERATURE
 
-os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
+# Groq via OpenAI-compatible
+os.environ["OPENAI_API_KEY"] = GROQ_API_KEY
+os.environ["OPENAI_BASE_URL"] = "https://api.groq.com/openai/v1"
 
 MCP_SERVER = StdioServerParameters(
     command=sys.executable,
@@ -17,8 +17,6 @@ MCP_SERVER = StdioServerParameters(
 )
 
 MAX_ITER = 5
-
-
 
 
 async def run_agent(user_message: str):
@@ -52,10 +50,8 @@ async def run_agent(user_message: str):
                 args = tool_call.args if isinstance(tool_call.args, dict) else {}
                 print(f"-> Tool: {tool_call.name} | args: {args}")
 
-                
                 result = await client.session.call_tool(tool_call.name, args)
                 contenido = result.content[0].text if result.content else "sin resultado"
-
                 resultados.append(f"Tool '{tool_call.name}' retorno: {contenido}")
 
             historial = (
