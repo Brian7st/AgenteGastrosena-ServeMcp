@@ -51,7 +51,7 @@ def _manejar_errores(fn):
 def _buscar_productos(params: dict) -> list:
     """Fuente única de verdad para GET /catalog/productos (respuesta paginada)."""
     datos = _get("/catalog/productos", params)
-    return datos.get("contenido", [])
+    return datos.get("content", [])
 
 
 def _uuid_por_codigo(codigo_sena: str) -> str:
@@ -142,7 +142,7 @@ def register(mcp: FastMCP):
         if estado:
             params["estado"] = estado
         datos = _get("/sourcing/facturas", params)
-        return {"ok": True, "facturas": datos.get("contenido", [])}
+        return {"ok": True, "facturas": datos.get("content", [])}
 
     @mcp.tool()
     @_manejar_errores
