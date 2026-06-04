@@ -38,6 +38,16 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 MCP_SERVER_HOST = os.getenv("MCP_SERVER_HOST", "localhost")
 MCP_SERVER_PORT = int(os.getenv("MCP_SERVER_PORT", "8000"))
 
+# ── API HTTP (la consume el frontend Angular) ─────
+API_HOST = os.getenv("API_HOST", "0.0.0.0")
+API_PORT = int(os.getenv("API_PORT", "9000"))
+# Orígenes permitidos por CORS, separados por coma. Default: dev server de Angular.
+CORS_ORIGINS = [
+    o.strip()
+    for o in os.getenv("CORS_ORIGINS", "http://localhost:4200").split(",")
+    if o.strip()
+]
+
 # ── Validación al arrancar ────────────────────────
 def validate_llm():
     """Valida que exista la API key del proveedor elegido en MODEL.

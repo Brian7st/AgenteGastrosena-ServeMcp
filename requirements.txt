@@ -9,3 +9,5 @@ mcp
 python-dotenv
 httpx
 requests
+fastapi
+uvicorn[standard]

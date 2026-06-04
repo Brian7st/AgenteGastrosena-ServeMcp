@@ -1,3 +1,5 @@
+from collections.abc import AsyncIterator
+
 import mirascope.llm as llm
 from mirascope.llm.mcp import sse_client
 
@@ -28,10 +30,36 @@ async def run_agent(user_message: str):
             response = await response.resume(outputs)
             outputs = await response.execute_tools()
 
-        print(response.text)
+        return response.text
+
+
+async def stream_agent(user_message: str) -> AsyncIterator[str]:
+    """Igual que run_agent pero emite el texto en chunks a medida que llega.
+
+    Mantiene el ciclo agéntico: por cada turno transmite el texto del modelo,
+    ejecuta las tool calls y reanuda, hasta que no pida más herramientas.
+    """
+    validate_llm()
+    async with sse_client(MCP_SERVER_URL) as client:
+        tools = await client.list_tools()
+        model = llm.model(MODEL)
+
+        messages = [
+            llm.SystemMessage(content=SYSTEM_PROMPT),
+            llm.UserMessage(content=user_message),
+        ]
+        stream = model.stream_async(messages, tools=tools)
+
+        while True:
+            async for chunk in stream.text_stream():
+                yield chunk
+            outputs = await stream.execute_tools()
+            if not outputs:
+                break
+            stream = stream.resume(outputs)
 
 
 if __name__ == "__main__":
     import asyncio
 
-    asyncio.run(run_agent("¿Cuáles son las comandas pendientes?"))
+    print(asyncio.run(run_agent("¿Cuáles son las comandas pendientes?")))
