@@ -4,7 +4,7 @@
 #   mirascope[openai]      -> GPT (también requerido por Ollama)
 #   mirascope[google]      -> Gemini
 # El proveedor activo se decide en runtime con la variable MODEL (ver .env.example).
-mirascope[anthropic]
+mirascope[anthropic,google]
 mcp
 python-dotenv
 httpx

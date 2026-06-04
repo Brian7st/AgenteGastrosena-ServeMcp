@@ -18,8 +18,8 @@ async def run_agent(user_message: str):
         model = llm.model(MODEL)
 
         messages = [
-            llm.SystemMessage(content=SYSTEM_PROMPT),
-            llm.UserMessage(content=user_message),
+            llm.SystemMessage(content=llm.Text(text=SYSTEM_PROMPT)),
+            llm.UserMessage(content=[llm.Text(text=user_message)]),
         ]
         response = await model.call_async(messages, tools=tools)
 
@@ -45,10 +45,10 @@ async def stream_agent(user_message: str) -> AsyncIterator[str]:
         model = llm.model(MODEL)
 
         messages = [
-            llm.SystemMessage(content=SYSTEM_PROMPT),
-            llm.UserMessage(content=user_message),
+            llm.SystemMessage(content=llm.Text(text=SYSTEM_PROMPT)),
+            llm.UserMessage(content=[llm.Text(text=user_message)]),
         ]
-        stream = model.stream_async(messages, tools=tools)
+        stream = await model.stream_async(messages, tools=tools)
 
         while True:
             async for chunk in stream.text_stream():
@@ -56,7 +56,7 @@ async def stream_agent(user_message: str) -> AsyncIterator[str]:
             outputs = await stream.execute_tools()
             if not outputs:
                 break
-            stream = stream.resume(outputs)
+            stream = await stream.resume(outputs)
 
 
 if __name__ == "__main__":
