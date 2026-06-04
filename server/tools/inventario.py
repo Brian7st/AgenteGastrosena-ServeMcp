@@ -48,15 +48,22 @@ def _manejar_errores(fn):
     return wrapper
 
 
-def _buscar_productos(params: dict) -> list:
-    """Fuente única de verdad para GET /catalog/productos (respuesta paginada)."""
+def _buscar_productos(params: dict) -> tuple[list, int]:
+    """Fuente única de verdad para GET /catalog/productos (respuesta paginada).
+
+    Devuelve (items_de_la_pagina, total_real, total_paginas). El total sale de
+    'totalElements' del backend; si no viene, cae al tamaño de la página.
+    """
     datos = _get("/catalog/productos", params)
-    return datos.get("content", [])
+    items = datos.get("content", [])
+    total = datos.get("totalElements", len(items))
+    total_paginas = datos.get("totalPages", 1)
+    return items, total, total_paginas
 
 
 def _uuid_por_codigo(codigo_sena: str) -> str:
     """Resuelve el UUID interno a partir del código SENA. Regla de negocio oculta al LLM."""
-    productos = _buscar_productos({"codigoSena": codigo_sena})
+    productos, _, _ = _buscar_productos({"codigoSena": codigo_sena})
     if productos:
         return productos[0]["id"]
     raise ValueError(f"El código SENA '{codigo_sena}' no existe en el catálogo.")
@@ -71,17 +78,30 @@ def register(mcp: FastMCP):
         codigo_sena: Optional[str] = None,
         nombre: Optional[str] = None,
         categoria: Optional[str] = None,
+        pagina: int = 0,
     ) -> dict:
-        """Busca bienes en el catálogo del SENA por código SENA, nombre o categoría."""
-        params = {}
+        """Busca bienes en el catálogo del SENA por código SENA, nombre o categoría.
+
+        El resultado viene paginado: 'total' es la cantidad real de bienes,
+        'datos' es la página actual. Si 'hay_mas' es True, pedí la siguiente
+        con 'pagina' (0 = primera página).
+        """
+        params = {"page": pagina}
         if codigo_sena:
             params["codigoSena"] = codigo_sena
         if nombre:
             params["nombre"] = nombre
         if categoria:
             params["categoria"] = categoria
-        productos = _buscar_productos(params)
-        return {"ok": True, "total": len(productos), "datos": productos}
+        productos, total, total_paginas = _buscar_productos(params)
+        return {
+            "ok": True,
+            "total": total,
+            "mostrados": len(productos),
+            "pagina": pagina,
+            "hay_mas": pagina < total_paginas - 1,
+            "datos": productos,
+        }
 
     # ---------- INVENTARIO (una tool = una intención) ----------
     @mcp.tool()
