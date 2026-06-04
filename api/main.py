@@ -16,6 +16,21 @@ from pydantic import BaseModel
 from agent.main import run_agent, stream_agent
 from config import CORS_ORIGINS
 
+def _causa_real(exc: BaseException) -> str:
+    """Desempaqueta ExceptionGroup (anyio/TaskGroup) hasta la excepción raíz.
+
+    Sin esto, el front solo ve 'unhandled errors in a TaskGroup' en vez del
+    error útil (p. ej. el 429 de cuota del proveedor LLM).
+    """
+    actual = exc
+    while True:
+        subs = getattr(actual, "exceptions", None)
+        if not subs:
+            break
+        actual = subs[0]
+    return f"{type(actual).__name__}: {actual}"
+
+
 app = FastAPI(title="Gastrosena Agent API")
 
 app.add_middleware(
@@ -49,8 +64,8 @@ async def consultar_agente(payload: ConsultaRequest) -> ConsultaResponse:
         raise HTTPException(status_code=400, detail="El campo 'mensaje' no puede estar vacío.")
     try:
         respuesta = await run_agent(mensaje)
-    except Exception as e:  # noqa: BLE001 - traducimos cualquier fallo a 502 hacia el front
-        raise HTTPException(status_code=502, detail=f"Fallo del agente: {e}") from e
+    except BaseException as e:  # noqa: BLE001 - traducimos cualquier fallo a 502 hacia el front
+        raise HTTPException(status_code=502, detail=f"Fallo del agente: {_causa_real(e)}") from e
     return ConsultaResponse(respuesta=respuesta or "")
 
 
@@ -72,8 +87,8 @@ async def consultar_agente_stream(payload: ConsultaRequest) -> StreamingResponse
             async for chunk in stream_agent(mensaje):
                 yield f"data: {json.dumps({'delta': chunk}, ensure_ascii=False)}\n\n"
             yield f"data: {json.dumps({'done': True})}\n\n"
-        except Exception as e:  # noqa: BLE001 - reportamos el fallo dentro del stream
-            yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
+        except BaseException as e:  # noqa: BLE001 - reportamos el fallo dentro del stream
+            yield f"data: {json.dumps({'error': _causa_real(e)}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
         event_stream(),
