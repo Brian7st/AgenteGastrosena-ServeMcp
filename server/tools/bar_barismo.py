@@ -4,6 +4,7 @@ Comandas, estadísticas, cancelaciones, devoluciones, recetas y alertas de sala.
 Rutas verificadas contra los @RequestMapping; todas cuelgan de /api.
 """
 
+import functools
 import os
 from typing import Literal, Optional
 
@@ -38,6 +39,7 @@ def _get(path: str, params: Optional[dict] = None, headers: Optional[dict] = Non
 
 def _manejar_errores(fn):
     """Traduce excepciones a respuestas honestas."""
+    @functools.wraps(fn)
     def wrapper(*args, **kwargs):
         try:
             return fn(*args, **kwargs)
@@ -47,8 +49,6 @@ def _manejar_errores(fn):
             return {"ok": False, "error": f"La API respondió {e.response.status_code}"}
         except requests.RequestException as e:
             return {"ok": False, "error": f"Fallo de conexión: {e}"}
-    wrapper.__name__ = fn.__name__
-    wrapper.__doc__ = fn.__doc__
     return wrapper
 
 

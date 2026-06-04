@@ -1,7 +1,9 @@
 from mcp.server.fastmcp import FastMCP
 from server.tools import inventario, cocina, bar_barismo, restaurante, notifications
+from config import MCP_SERVER_HOST, MCP_SERVER_PORT
 
-mcp = FastMCP("gastrosena")
+# Microservicio MCP: escucha en host/puerto (transporte SSE), no en stdio.
+mcp = FastMCP("gastrosena", host=MCP_SERVER_HOST, port=MCP_SERVER_PORT)
 
 # Registrar herramientas por módulo
 inventario.register(mcp)
@@ -11,4 +13,4 @@ restaurante.register(mcp)
 notifications.register(mcp)
 
 if __name__ == "__main__":
-    mcp.run()
+    mcp.run(transport="sse")

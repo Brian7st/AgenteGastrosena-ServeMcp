@@ -1,4 +1,11 @@
+# Cliente LLM agnóstico de proveedor.
+# Elegí el/los extra(s) del proveedor que vayas a usar (podés combinar):
+#   mirascope[anthropic]   -> Claude
+#   mirascope[openai]      -> GPT (también requerido por Ollama)
+#   mirascope[google]      -> Gemini
+# El proveedor activo se decide en runtime con la variable MODEL (ver .env.example).
 mirascope[anthropic]
 mcp
 python-dotenv
 httpx
+requests

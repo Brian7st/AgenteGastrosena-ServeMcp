@@ -7,14 +7,15 @@ Endpoints verificados contra los @RequestMapping de los controllers Spring Boot.
 Todas las rutas cuelgan de /api/v1 (ver API_PREFIX).
 """
 
+import functools
 import os
 from typing import Optional
 
 import requests
 from mcp.server.fastmcp import FastMCP
 
-# --- Configuración: desde el entorno, falla al arrancar si falta el host ---
-API_BASE_URL = os.environ["API_BASE_URL"].rstrip("/")
+# --- Configuración: desde el entorno, con default local (inventario = 8081) ---
+API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8081").rstrip("/")
 API_PREFIX = "/api/v1"                 # prefijo común de TODOS los controllers
 API_TOKEN = os.environ.get("API_TOKEN")  # opcional, listo para cuando el backend lo pida
 TIMEOUT = 10
@@ -34,6 +35,7 @@ def _get(path: str, params: Optional[dict] = None) -> dict:
 
 def _manejar_errores(fn):
     """Traduce excepciones a respuestas honestas (no todo es 'error de conexión')."""
+    @functools.wraps(fn)
     def wrapper(*args, **kwargs):
         try:
             return fn(*args, **kwargs)
@@ -43,8 +45,6 @@ def _manejar_errores(fn):
             return {"ok": False, "error": f"La API respondió {e.response.status_code}"}
         except requests.RequestException as e:
             return {"ok": False, "error": f"Fallo de conexión: {e}"}
-    wrapper.__name__ = fn.__name__
-    wrapper.__doc__ = fn.__doc__
     return wrapper
 
 

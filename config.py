@@ -3,9 +3,22 @@ import os
 
 load_dotenv()
 
-# ── LLM ──────────────────────────────────────────
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-MODEL = os.getenv("MODEL", "claude-sonnet-4-20250514")
+# ── LLM (agnóstico de proveedor) ─────────────────
+# El proveedor se decide por el prefijo de MODEL: "<proveedor>/<modelo>".
+# Ej: anthropic/claude-sonnet-4-20250514 | openai/gpt-4o | google/gemini-2.0-flash
+MODEL = os.getenv("MODEL", "anthropic/claude-sonnet-4-20250514")
+LLM_PROVIDER = MODEL.split("/", 1)[0] if "/" in MODEL else "anthropic"
+
+# Mapa proveedor -> variable de entorno con su API key (la lee mirascope).
+_PROVIDER_API_KEY_ENV = {
+    "anthropic": "ANTHROPIC_API_KEY",
+    "anthropic-beta": "ANTHROPIC_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "google": "GOOGLE_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY",
+    "together": "TOGETHER_API_KEY",
+    # ollama / mlx corren local: no requieren API key.
+}
 
 # ── Telegram ─────────────────────────────────────
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -26,15 +39,13 @@ MCP_SERVER_HOST = os.getenv("MCP_SERVER_HOST", "localhost")
 MCP_SERVER_PORT = int(os.getenv("MCP_SERVER_PORT", "8000"))
 
 # ── Validación al arrancar ────────────────────────
-def validate():
-    required = {
-        "ANTHROPIC_API_KEY": ANTHROPIC_API_KEY,
-        "TELEGRAM_BOT_TOKEN": TELEGRAM_BOT_TOKEN,
-        "TELEGRAM_CHAT_ID": TELEGRAM_CHAT_ID,
-        "SMTP_USER": SMTP_USER,
-        "SMTP_PASSWORD": SMTP_PASSWORD,
-        "DATABASE_URL": DATABASE_URL,
-    }
-    missing = [k for k, v in required.items() if not v]
-    if missing:
-        raise EnvironmentError(f"Variables de entorno faltantes: {', '.join(missing)}")
+def validate_llm():
+    """Valida que exista la API key del proveedor elegido en MODEL.
+
+    Proveedores locales (ollama, mlx) no requieren key.
+    """
+    key_env = _PROVIDER_API_KEY_ENV.get(LLM_PROVIDER)
+    if key_env and not os.getenv(key_env):
+        raise EnvironmentError(
+            f"Falta {key_env} para el proveedor '{LLM_PROVIDER}' (MODEL={MODEL})."
+        )
