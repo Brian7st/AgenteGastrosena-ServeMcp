@@ -4,6 +4,7 @@ Facturas, caja, reportes, pedidos y mesas.
 Rutas verificadas contra los @RequestMapping; todas cuelgan de /api.
 """
 
+import functools
 import os
 from typing import Literal, Optional
 
@@ -11,7 +12,7 @@ import requests
 from mcp.server.fastmcp import FastMCP
 
 # --- Config: propia del micro de restaurante (host independiente) ---
-API_BASE_URL = os.environ.get("REST_API_BASE_URL", "http://localhost:8085").rstrip("/")
+API_BASE_URL = os.environ.get("REST_API_BASE_URL", "http://localhost:8080").rstrip("/")
 API_PREFIX = "/api"
 API_TOKEN = os.environ.get("REST_API_TOKEN")
 TIMEOUT = 10
@@ -35,6 +36,7 @@ def _get(path: str, params: Optional[dict] = None) -> dict:
 
 def _manejar_errores(fn):
     """Traduce excepciones a respuestas honestas."""
+    @functools.wraps(fn)
     def wrapper(*args, **kwargs):
         try:
             return fn(*args, **kwargs)
@@ -44,8 +46,6 @@ def _manejar_errores(fn):
             return {"ok": False, "error": f"La API respondió {e.response.status_code}"}
         except requests.RequestException as e:
             return {"ok": False, "error": f"Fallo de conexión: {e}"}
-    wrapper.__name__ = fn.__name__
-    wrapper.__doc__ = fn.__doc__
     return wrapper
 
 

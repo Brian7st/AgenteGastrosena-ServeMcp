@@ -7,14 +7,15 @@ Endpoints verificados contra los @RequestMapping de los controllers Spring Boot.
 Todas las rutas cuelgan de /api/v1 (ver API_PREFIX).
 """
 
+import functools
 import os
 from typing import Optional
 
 import requests
 from mcp.server.fastmcp import FastMCP
 
-# --- Configuración: desde el entorno, falla al arrancar si falta el host ---
-API_BASE_URL = os.environ["API_BASE_URL"].rstrip("/")
+# --- Configuración: desde el entorno, con default local (inventario = 8081) ---
+API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8081").rstrip("/")
 API_PREFIX = "/api/v1"                 # prefijo común de TODOS los controllers
 API_TOKEN = os.environ.get("API_TOKEN")  # opcional, listo para cuando el backend lo pida
 TIMEOUT = 10
@@ -34,6 +35,7 @@ def _get(path: str, params: Optional[dict] = None) -> dict:
 
 def _manejar_errores(fn):
     """Traduce excepciones a respuestas honestas (no todo es 'error de conexión')."""
+    @functools.wraps(fn)
     def wrapper(*args, **kwargs):
         try:
             return fn(*args, **kwargs)
@@ -43,20 +45,25 @@ def _manejar_errores(fn):
             return {"ok": False, "error": f"La API respondió {e.response.status_code}"}
         except requests.RequestException as e:
             return {"ok": False, "error": f"Fallo de conexión: {e}"}
-    wrapper.__name__ = fn.__name__
-    wrapper.__doc__ = fn.__doc__
     return wrapper
 
 
-def _buscar_productos(params: dict) -> list:
-    """Fuente única de verdad para GET /catalog/productos (respuesta paginada)."""
+def _buscar_productos(params: dict) -> tuple[list, int]:
+    """Fuente única de verdad para GET /catalog/productos (respuesta paginada).
+
+    Devuelve (items_de_la_pagina, total_real, total_paginas). El total sale de
+    'totalElements' del backend; si no viene, cae al tamaño de la página.
+    """
     datos = _get("/catalog/productos", params)
-    return datos.get("contenido", [])
+    items = datos.get("content", [])
+    total = datos.get("totalElements", len(items))
+    total_paginas = datos.get("totalPages", 1)
+    return items, total, total_paginas
 
 
 def _uuid_por_codigo(codigo_sena: str) -> str:
     """Resuelve el UUID interno a partir del código SENA. Regla de negocio oculta al LLM."""
-    productos = _buscar_productos({"codigoSena": codigo_sena})
+    productos, _, _ = _buscar_productos({"codigoSena": codigo_sena})
     if productos:
         return productos[0]["id"]
     raise ValueError(f"El código SENA '{codigo_sena}' no existe en el catálogo.")
@@ -71,17 +78,30 @@ def register(mcp: FastMCP):
         codigo_sena: Optional[str] = None,
         nombre: Optional[str] = None,
         categoria: Optional[str] = None,
+        pagina: int = 0,
     ) -> dict:
-        """Busca bienes en el catálogo del SENA por código SENA, nombre o categoría."""
-        params = {}
+        """Busca bienes en el catálogo del SENA por código SENA, nombre o categoría.
+
+        El resultado viene paginado: 'total' es la cantidad real de bienes,
+        'datos' es la página actual. Si 'hay_mas' es True, pedí la siguiente
+        con 'pagina' (0 = primera página).
+        """
+        params = {"page": pagina}
         if codigo_sena:
             params["codigoSena"] = codigo_sena
         if nombre:
             params["nombre"] = nombre
         if categoria:
             params["categoria"] = categoria
-        productos = _buscar_productos(params)
-        return {"ok": True, "total": len(productos), "datos": productos}
+        productos, total, total_paginas = _buscar_productos(params)
+        return {
+            "ok": True,
+            "total": total,
+            "mostrados": len(productos),
+            "pagina": pagina,
+            "hay_mas": pagina < total_paginas - 1,
+            "datos": productos,
+        }
 
     # ---------- INVENTARIO (una tool = una intención) ----------
     @mcp.tool()
@@ -142,7 +162,7 @@ def register(mcp: FastMCP):
         if estado:
             params["estado"] = estado
         datos = _get("/sourcing/facturas", params)
-        return {"ok": True, "facturas": datos.get("contenido", [])}
+        return {"ok": True, "facturas": datos.get("content", [])}
 
     @mcp.tool()
     @_manejar_errores
