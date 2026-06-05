@@ -30,7 +30,7 @@ async def run_agent(user_message: str):
             response = await response.resume(outputs)
             outputs = await response.execute_tools()
 
-        return response.text
+        return response.text()
 
 
 async def stream_agent(user_message: str) -> AsyncIterator[str]:
