@@ -1,5 +1,5 @@
 """
-MCP de integración con gs-ms-cocina (Bar y Barismo). Solo lectura.
+MCP de integración con gs-ms-cocina (Bar y Barismo).
 Comandas, estadísticas, cancelaciones, devoluciones, recetas y alertas de sala.
 Rutas verificadas contra los @RequestMapping; todas cuelgan de /api.
 """
@@ -11,15 +11,16 @@ from typing import Literal, Optional
 import requests
 from mcp.server.fastmcp import FastMCP
 
-# --- Config: propia del micro de cocina (no comparte host con inventario) ---
+# --- Config ---
 API_BASE_URL = os.environ.get("BAR_API_BASE_URL", "http://localhost:8086").rstrip("/")
 API_PREFIX = "/api"
 API_TOKEN = os.environ.get("BAR_API_TOKEN")
 TIMEOUT = 10
-MAX_ITEMS = 50                               # tope de filas: protege el contexto del LLM
+MAX_ITEMS = 50
 
 EstadoComanda = Literal["PENDIENTE", "EN_PREPARACION", "LISTO", "ENTREGADO", "CANCELADO"]
-Rol = Literal["ADMIN", "BARISTA", "MESERO"]
+EstadoAlerta  = Literal["PENDIENTE", "CONFIRMADA", "IGNORADA"]
+Rol           = Literal["ADMIN", "BARISTA", "MESERO"]
 
 _session = requests.Session()
 if API_TOKEN:
@@ -27,7 +28,7 @@ if API_TOKEN:
 
 
 def _get(path: str, params: Optional[dict] = None, headers: Optional[dict] = None) -> dict:
-    """Único punto de salida HTTP: prefijo, timeout y raise."""
+    """Único punto de salida HTTP GET: prefijo, timeout y raise."""
     resp = _session.get(
         f"{API_BASE_URL}{API_PREFIX}{path}", params=params, headers=headers, timeout=TIMEOUT
     )
@@ -35,6 +36,18 @@ def _get(path: str, params: Optional[dict] = None, headers: Optional[dict] = Non
     if resp.status_code == 204 or not resp.content:
         return {}
     return resp.json()
+
+
+def _write(method: str, path: str, params: Optional[dict] = None, json: Optional[dict] = None) -> dict:
+    """Único punto de salida HTTP de escritura: POST, PUT."""
+    resp = _session.request(
+        method, f"{API_BASE_URL}{API_PREFIX}{path}", params=params, json=json, timeout=TIMEOUT
+    )
+    resp.raise_for_status()
+    if resp.status_code == 204 or not resp.content:
+        return {}
+    ct = resp.headers.get("Content-Type", "")
+    return resp.json() if "json" in ct else {"mensaje": resp.text}
 
 
 def _manejar_errores(fn):
@@ -96,6 +109,27 @@ def register(mcp: FastMCP):
         """Tiempo de preparación (inicio, fin, duración) de una comanda."""
         return {"ok": True, "tiempo": _compactar(_get(f"/barybarismo/comandas/{id_comanda}/tiempo"))}
 
+    @mcp.tool()
+    @_manejar_errores
+    def actualizar_estado_comanda(id_comanda: str, estado: EstadoComanda) -> dict:
+        """Actualiza el estado de una comanda."""
+        datos = _write("PUT", f"/barybarismo/comandas/{id_comanda}/estado", params={"estado": estado})
+        return {"ok": True, "comanda": _compactar(datos)}
+
+    @mcp.tool()
+    @_manejar_errores
+    def iniciar_preparacion_comanda(id_comanda: str, id_responsable: int) -> dict:
+        """Inicia la preparación de una comanda; registra el barista responsable."""
+        datos = _write("PUT", f"/barybarismo/comandas/{id_comanda}/iniciar", params={"responsable": id_responsable})
+        return {"ok": True, "comanda": _compactar(datos)}
+
+    @mcp.tool()
+    @_manejar_errores
+    def finalizar_preparacion_comanda(id_comanda: str) -> dict:
+        """Finaliza la preparación de una comanda (estado → LISTO)."""
+        datos = _write("PUT", f"/barybarismo/comandas/{id_comanda}/finalizar")
+        return {"ok": True, "comanda": _compactar(datos)}
+
     # ---------- ESTADÍSTICAS ----------
     @mcp.tool()
     @_manejar_errores
@@ -141,6 +175,14 @@ def register(mcp: FastMCP):
         datos = _get(f"/barybarismo/cancelacion/{id_detalle}", headers={"X-User-Role": rol})
         return {"ok": True, "cancelacion": _compactar(datos)}
 
+    @mcp.tool()
+    @_manejar_errores
+    def cancelar_pedido(id_detalle_comanda: str, motivo_cancelacion: str, usuario_cancela: Optional[str] = None) -> dict:
+        """Cancela un pedido y lo registra en el historial. usuario_cancela es opcional."""
+        body = _filtros(idDetalleComanda=id_detalle_comanda, motivoCancelacion=motivo_cancelacion, usuarioCancela=usuario_cancela)
+        datos = _write("PUT", "/barybarismo/pedido/cancelar", json=body)
+        return {"ok": True, "cancelacion": _compactar(datos)}
+
     # ---------- DEVOLUCIONES ----------
     @mcp.tool()
     @_manejar_errores
@@ -164,6 +206,22 @@ def register(mcp: FastMCP):
         """Causa de devolución de un ítem por ID."""
         return {"ok": True, "devolucion": _compactar(_get(f"/barybarismo/devolucion/{id_plato}"))}
 
+    @mcp.tool()
+    @_manejar_errores
+    def registrar_devolucion(id_detalle_comanda: str, motivo: str) -> dict:
+        """Registra la devolución de una bebida."""
+        datos = _write("POST", "/barybarismo/devolucion", json={"idDetalleComanda": id_detalle_comanda, "motivo": motivo})
+        return {"ok": True, "devolucion": _compactar(datos)}
+
+    # ---------- MODIFICACIÓN DE PEDIDOS ----------
+    @mcp.tool()
+    @_manejar_errores
+    def modificar_pedido(id_detalle_comanda: str, motivo: str, nueva_cantidad: Optional[int] = None, nuevas_notas: Optional[str] = None) -> dict:
+        """Modifica cantidad y/o notas de un pedido; registra en auditoría."""
+        body = _filtros(idDetalleComanda=id_detalle_comanda, motivo=motivo, nuevaCantidad=nueva_cantidad, nuevasNotas=nuevas_notas)
+        datos = _write("PUT", "/barybarismo/pedido/modificar", json=body)
+        return {"ok": True, **datos}
+
     # ---------- RECETAS ----------
     @mcp.tool()
     @_manejar_errores
@@ -178,6 +236,26 @@ def register(mcp: FastMCP):
         """Detalle de una receta (ingredientes y pasos) por ID."""
         return {"ok": True, "receta": _compactar(_get(f"/recetas/{id_receta}"))}
 
+    @mcp.tool()
+    @_manejar_errores
+    def crear_receta(id_categoria: str, nombre_receta: str, tiempo_preparacion: int,
+                     precio_unitario: float, temperatura: str, ingredientes: list[dict], pasos: list[dict]) -> dict:
+        """Crea una nueva receta con ingredientes y pasos."""
+        body = {"idCategoria": id_categoria, "nombreReceta": nombre_receta, "tiempoPreparacion": tiempo_preparacion,
+                "precioUnitario": precio_unitario, "temperatura": temperatura, "ingredientes": ingredientes, "pasos": pasos}
+        datos = _write("POST", "/recetas", json=body)
+        return {"ok": True, "receta": _compactar(datos)}
+
+    @mcp.tool()
+    @_manejar_errores
+    def actualizar_receta(id_receta: str, id_categoria: str, nombre_receta: str, tiempo_preparacion: int,
+                          precio_unitario: float, temperatura: str, ingredientes: list[dict], pasos: list[dict]) -> dict:
+        """Actualiza una receta existente; reemplaza ingredientes y pasos completos."""
+        body = {"idCategoria": id_categoria, "nombreReceta": nombre_receta, "tiempoPreparacion": tiempo_preparacion,
+                "precioUnitario": precio_unitario, "temperatura": temperatura, "ingredientes": ingredientes, "pasos": pasos}
+        datos = _write("PUT", f"/recetas/{id_receta}", json=body)
+        return {"ok": True, "receta": _compactar(datos)}
+
     # ---------- ALERTAS DE SALA ----------
     @mcp.tool()
     @_manejar_errores
@@ -190,3 +268,27 @@ def register(mcp: FastMCP):
     def consultar_configuracion_alertas(id_usuario: str) -> dict:
         """Configuración de alertas (pantalla/sonido) de un usuario."""
         return {"ok": True, "configuracion": _compactar(_get(f"/alertas/configuracion/{id_usuario}"))}
+
+    @mcp.tool()
+    @_manejar_errores
+    def confirmar_alerta_sala(id_alerta: str, nuevo_estado: EstadoAlerta) -> dict:
+        """Confirma o cambia el estado de una alerta de sala."""
+        datos = _write("PUT", f"/alertas/{id_alerta}/confirmar", params={"nuevoEstado": nuevo_estado})
+        return {"ok": True, "alerta": _compactar(datos)}
+
+    @mcp.tool()
+    @_manejar_errores
+    def guardar_configuracion_alertas(id_usuario: str, pantalla: bool, sonido: bool) -> dict:
+        """Guarda o actualiza la configuración de alertas (pantalla/sonido) de un usuario."""
+        params = {"idUsuario": id_usuario, "pantalla": str(pantalla).lower(), "sonido": str(sonido).lower()}
+        datos = _write("POST", "/alertas/configuracion", params=params)
+        return {"ok": True, "configuracion": _compactar(datos)}
+
+    # ---------- COCINA ----------
+    @mcp.tool()
+    @_manejar_errores
+    def marcar_comanda_lista(id_comanda: str, id_mesa: str, id_mesero: str, id_modulo_origen: str) -> dict:
+        """Marca una comanda como lista y genera alerta de sala automáticamente."""
+        params = {"idMesa": id_mesa, "idMesero": id_mesero, "idModuloOrigen": id_modulo_origen}
+        datos = _write("POST", f"/cocina/comandas/{id_comanda}/listo", params=params)
+        return {"ok": True, **datos}
