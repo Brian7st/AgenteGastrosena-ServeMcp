@@ -11,3 +11,6 @@ httpx
 requests
 fastapi
 uvicorn[standard]
+
+# Bot de Telegram (interfaz de chat con el agente). Versión async (v20+).
+python-telegram-bot

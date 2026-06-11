@@ -19,6 +19,7 @@ TIMEOUT = 10
 MAX_ITEMS = 50                               # tope de filas: protege el contexto del LLM
 
 EstadoMesa = Literal["LIBRE", "OCUPADA", "POR_PAGAR"]
+AccionPedido = Literal["confirmar", "entregar", "cancelar"]
 
 _session = requests.Session()
 if API_TOKEN:
@@ -64,6 +65,23 @@ def _lista(path: str, params: Optional[dict] = None) -> dict:
     if not isinstance(datos, list):
         return {"total": 0, "items": [], "truncado": False}
     return {"total": len(datos), "items": datos[:MAX_ITEMS], "truncado": len(datos) > MAX_ITEMS}
+
+
+def _cuerpo(**kwargs) -> Optional[dict]:
+    """Arma el JSON body descartando campos vacíos; None si no queda nada."""
+    body = {k: v for k, v in kwargs.items() if v is not None and v != ""}
+    return body or None
+
+
+def _enviar(metodo: str, path: str, body: Optional[dict] = None) -> dict:
+    """Único punto de salida para escrituras (POST/PUT/PATCH)."""
+    resp = _session.request(
+        metodo, f"{API_BASE_URL}{API_PREFIX}{path}", json=body, timeout=TIMEOUT
+    )
+    resp.raise_for_status()
+    if resp.status_code == 204 or not resp.content:
+        return {}
+    return resp.json()
 
 
 def register(mcp: FastMCP):
@@ -146,3 +164,65 @@ def register(mcp: FastMCP):
     def consultar_mesa(id: str) -> dict:
         """Detalle de una mesa por ID."""
         return {"ok": True, "mesa": _compactar(_get(f"/mesas/{id}"))}
+
+    # ========== ESCRITURA (POST / PUT / PATCH) ==========
+
+    # ---------- FACTURAS ----------
+    @mcp.tool()
+    @_manejar_errores
+    def facturar_pedido(pedido_id: str, metodo_pago: str, propina: Optional[float] = None) -> dict:
+        """Factura un pedido entregado. metodo_pago: EFECTIVO|TARJETA|TRANSFERENCIA."""
+        body = _cuerpo(pedidoId=pedido_id, metodoPago=metodo_pago, propina=propina)
+        return {"ok": True, "factura": _compactar(_enviar("POST", "/facturas", body))}
+
+    @mcp.tool()
+    @_manejar_errores
+    def anular_factura(id: str, motivo: str) -> dict:
+        """Anula una factura por ID (requiere motivo)."""
+        body = _cuerpo(motivo=motivo)
+        return {"ok": True, "factura": _compactar(_enviar("PATCH", f"/facturas/{id}/anular", body))}
+
+    # ---------- CAJA ----------
+    @mcp.tool()
+    @_manejar_errores
+    def abrir_sesion_caja(monto_inicial: float) -> dict:
+        """Abre una sesión de caja con un monto inicial."""
+        body = _cuerpo(montoInicial=monto_inicial)
+        return {"ok": True, "sesion": _compactar(_enviar("POST", "/caja/sesion/abrir", body))}
+
+    @mcp.tool()
+    @_manejar_errores
+    def cerrar_sesion_caja(id: str, monto_final: Optional[float] = None) -> dict:
+        """Cierra una sesión de caja por ID; monto_final opcional para arqueo."""
+        body = _cuerpo(montoFinal=monto_final)
+        return {"ok": True, "sesion": _compactar(_enviar("PATCH", f"/caja/sesion/{id}/cerrar", body))}
+
+    # ---------- PEDIDOS ----------
+    @mcp.tool()
+    @_manejar_errores
+    def cambiar_estado_pedido(id: str, accion: AccionPedido, motivo: Optional[str] = None) -> dict:
+        """Transiciona un pedido: confirmar (envía a cocina/bar), entregar o cancelar (motivo)."""
+        body = _cuerpo(motivo=motivo) if accion == "cancelar" else None
+        return {"ok": True, "pedido": _compactar(_enviar("PATCH", f"/pedidos/{id}/{accion}", body))}
+
+    # ---------- MESAS ----------
+    @mcp.tool()
+    @_manejar_errores
+    def crear_mesa(numero: int, capacidad: int, ubicacion: Optional[str] = None) -> dict:
+        """Crea una mesa (número y capacidad; ubicación opcional)."""
+        body = _cuerpo(numero=numero, capacidad=capacidad, ubicacion=ubicacion)
+        return {"ok": True, "mesa": _compactar(_enviar("POST", "/mesas", body))}
+
+    @mcp.tool()
+    @_manejar_errores
+    def cambiar_disponibilidad_mesa(id: str, activa: bool) -> dict:
+        """Activa o desactiva una mesa."""
+        accion = "activar" if activa else "desactivar"
+        return {"ok": True, "mesa": _compactar(_enviar("PATCH", f"/mesas/{id}/{accion}"))}
+
+    @mcp.tool()
+    @_manejar_errores
+    def cambiar_estado_mesa(id: str, estado: EstadoMesa) -> dict:
+        """Cambia manualmente el estado de una mesa (LIBRE|OCUPADA|POR_PAGAR)."""
+        body = _cuerpo(estado=estado)
+        return {"ok": True, "mesa": _compactar(_enviar("PATCH", f"/mesas/{id}/estado", body))}
