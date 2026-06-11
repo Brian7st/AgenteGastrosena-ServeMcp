@@ -164,6 +164,40 @@ python -m telegram_bot.main
 > (:8000)** corriendo, pero NO la API HTTP (:9000). Funciona de forma
 > independiente del chat web.
 
+### Envío de correos (herramienta `enviar_email`)
+
+El agente puede **enviar correos** a destinatarios autorizados (contadora,
+administrador, instructores). Es la **única** acción con efecto hacia afuera;
+todo lo demás sigue siendo solo lectura.
+
+**Configuración en el `.env`:**
+
+```bash
+# Credenciales SMTP (Gmail: usá una App Password, NO tu contraseña real)
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=tu_cuenta@gmail.com
+SMTP_PASSWORD=tu_app_password
+EMAIL_FROM=tu_cuenta@gmail.com
+
+# Destinatarios autorizados por ROL (rol:correo separados por coma).
+# Es un guardrail de seguridad: el agente SOLO puede enviar a estas direcciones.
+# Vacío = envío de correos BLOQUEADO.
+EMAIL_RECIPIENTS_BY_ROLE="contadora:ana@sena.edu.co,administrador:jefe@sena.edu.co,instructores:instructores@sena.edu.co"
+```
+
+**Comportamiento:**
+
+- El agente **siempre confirma** destinatario, asunto y cuerpo antes de enviar.
+- Solo acepta destinatarios autorizados (por nombre de rol o por correo de la lista).
+- Agrega una **firma institucional** automática (configurable con `EMAIL_FIRMA`).
+
+**Probar el envío aislado** (sin el LLM, valida solo la config SMTP):
+
+```bash
+python -m scripts.probar_email contadora "Asunto de prueba" "Cuerpo del mensaje"
+```
+
 ---
 
 ## Endpoints de la API

@@ -39,6 +39,28 @@ SMTP_USER = os.getenv("SMTP_USER")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
 EMAIL_FROM = os.getenv("EMAIL_FROM", SMTP_USER)
 
+# Destinatarios autorizados por ROL (guardrail anti prompt-injection): el agente
+# SOLO puede enviar correos a estas direcciones. Formato en el .env:
+#   EMAIL_RECIPIENTS_BY_ROLE="contadora:ana@sena.edu.co,administrador:jefe@sena.edu.co"
+# Si está vacío, el envío de correos queda BLOQUEADO (modo seguro por defecto).
+EMAIL_RECIPIENTS_BY_ROLE = {
+    rol.strip().lower(): correo.strip()
+    for par in os.getenv("EMAIL_RECIPIENTS_BY_ROLE", "").split(",")
+    if ":" in par
+    for rol, correo in [par.split(":", 1)]
+    if rol.strip() and correo.strip()
+}
+
+# Conjunto de correos permitidos (valores del mapa de roles), para validación rápida.
+EMAIL_ALLOWED_RECIPIENTS = set(EMAIL_RECIPIENTS_BY_ROLE.values())
+
+# Firma institucional añadida automáticamente al pie de cada correo del agente.
+EMAIL_FIRMA = os.getenv(
+    "EMAIL_FIRMA",
+    "Mensaje enviado por GastroIA, asistente virtual del SENA - Gastrosena.\n"
+    "Este es un correo automático; por favor no responda a esta dirección.",
+)
+
 # ── Base de datos ─────────────────────────────────
 DATABASE_URL = os.getenv("DATABASE_URL")
 
