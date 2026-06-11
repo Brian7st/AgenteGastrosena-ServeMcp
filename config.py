@@ -24,6 +24,14 @@ _PROVIDER_API_KEY_ENV = {
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
+# Lista blanca de chat_id autorizados a usar el bot, separados por coma.
+# Vacío = cualquiera que encuentre el bot puede consultarlo (se avisa por log).
+TELEGRAM_ALLOWED_CHAT_IDS = [
+    c.strip()
+    for c in os.getenv("TELEGRAM_ALLOWED_CHAT_IDS", "").split(",")
+    if c.strip()
+]
+
 # ── Email (SMTP) ──────────────────────────────────
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
