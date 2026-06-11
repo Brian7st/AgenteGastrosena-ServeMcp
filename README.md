@@ -140,6 +140,30 @@ Para **detener** cualquiera de los dos: `Ctrl + C` en su terminal.
 python -m agent.main
 ```
 
+### Bot de Telegram (opcional)
+
+Interfaz de chat alternativa a la web: el usuario le escribe al bot desde
+Telegram y el agente responde. Es **solo lectura**, igual que la web.
+
+**Requisitos previos:**
+
+1. Crear el bot con [@BotFather](https://t.me/BotFather) (`/newbot`) y copiar el token.
+2. En el `.env`, completar `TELEGRAM_BOT_TOKEN`.
+3. (Recomendado) Restringir el acceso con `TELEGRAM_ALLOWED_CHAT_IDS`
+   (chat_id separados por coma). Vacío = abierto a cualquiera.
+   Para saber tu `chat_id`, escribile `/start` al bot sin estar autorizado:
+   el bot te responde con tu id.
+
+**Levantarlo** (en una tercera terminal, con el MCP ya corriendo):
+
+```bash
+python -m telegram_bot.main
+```
+
+> El bot llama directo a `run_agent()`, así que necesita el **servidor MCP
+> (:8000)** corriendo, pero NO la API HTTP (:9000). Funciona de forma
+> independiente del chat web.
+
 ---
 
 ## Endpoints de la API
@@ -178,6 +202,7 @@ En `proxy.conf.json`, agregá la ruta del agente **antes** del catch-all `/api`:
 ```
 agent/        # ciclo agéntico (run_agent, stream_agent) + system prompt
 api/          # API HTTP FastAPI (lo que consume Angular)
+telegram_bot/ # bot de Telegram (interfaz de chat alternativa, polling)
 server/       # servidor MCP y tools por dominio
   tools/
     inventario.py    # solo lectura  ✅ registrada
