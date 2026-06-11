@@ -1,5 +1,5 @@
 """
-MCP de integración con gams-usuarios (Notificaciones). Solo lectura.
+MCP de integración con gams-usuarios (Notificaciones).
 Centraliza la consulta de notificaciones de sistema (leídas, no leídas, filtros).
 Rutas verificadas contra el NotificacionController; todas cuelgan de /api.
 """
@@ -89,52 +89,84 @@ def _lista(path: str, params: Optional[dict] = None) -> dict:
 
 def register(mcp: FastMCP):
 
-    # ---------- ACTUALIZACIONES OPERATIVAS ----------
-    @mcp.tool()
-    @_manejar_errores
-    def actualizar_estado_lectura(id_notificacion: Optional[str] = None, todas: bool = False) -> dict:
-        """
-        Marca una notificación específica como leída, o todas las notificaciones como leídas (PUT/PATCH).
-        """
-        if todas:
-            _put("/notificaciones/leer-todas")
-            return {"ok": True, "mensaje": "✅ Confirmación visual: Todas las notificaciones han sido marcadas como leídas."}
-        elif id_notificacion:
-            _put(f"/notificaciones/{id_notificacion}/leer")
-            return {"ok": True, "mensaje": f"✅ Confirmación visual: La notificación {id_notificacion} ha sido marcada como leída."}
-        return {"ok": False, "error": "Debes especificar id_notificacion o todas=True."}
-
+    # ==========================================
+    # ---------- ACCIONES (PUT/PATCH) ----------
+    # ==========================================
 
     @mcp.tool()
     @_manejar_errores
-    def consultar_notificaciones(
-        solo_no_leidas: bool = False,
-        filtrar: bool = False,
+    def marcar_notificacion_como_leida(id_notificacion: str) -> dict:
+        """
+        Marca una notificación específica como leída usando su ID único.
+        
+        Parámetros:
+        - id_notificacion (str): ID único de la notificación a marcar como leída.
+        """
+        _put(f"/notificaciones/{id_notificacion}/leer")
+        return {"ok": True, "mensaje": f"✅ Confirmación visual: La notificación {id_notificacion} ha sido marcada como leída."}
+
+    @mcp.tool()
+    @_manejar_errores
+    def marcar_todas_notificaciones_como_leidas() -> dict:
+        """
+        Marca todas las notificaciones pendientes del usuario como leídas.
+        """
+        _put("/notificaciones/leer-todas")
+        return {"ok": True, "mensaje": "✅ Confirmación visual: Todas las notificaciones han sido marcadas como leídas."}
+
+    # ==========================================
+    # ---------- CONSULTAS (GET) ---------------
+    # ==========================================
+
+    @mcp.tool()
+    @_manejar_errores
+    def listar_todas_notificaciones() -> dict:
+        """
+        Obtiene la lista completa de todas las notificaciones (tanto leídas como no leídas) del usuario.
+        
+        No modifica información.
+        """
+        return {"ok": True, **_lista("/notificaciones")}
+
+    @mcp.tool()
+    @_manejar_errores
+    def listar_notificaciones_no_leidas() -> dict:
+        """
+        Obtiene únicamente la lista de notificaciones pendientes de leer del usuario.
+        
+        No modifica información.
+        """
+        return {"ok": True, **_lista("/notificaciones/no-leidas")}
+
+    @mcp.tool()
+    @_manejar_errores
+    def filtrar_notificaciones(
         fecha_inicio: Optional[str] = None,
         fecha_fin: Optional[str] = None,
         tipo: Optional[str] = None
     ) -> dict:
         """
-        Consulta las notificaciones del usuario autenticado.
-        Permite traer solo las 'no_leidas', o usar 'filtrar=True' para buscar por rango de fechas ISO y tipo.
-        """
-        if solo_no_leidas:
-            return {"ok": True, **_lista("/notificaciones/no-leidas")}
-        elif filtrar:
-            params = _filtros(inicio=fecha_inicio, fin=fecha_fin, tipo=tipo)
-            return {"ok": True, **_lista("/notificaciones/filtrar", params)}
+        Filtra y busca notificaciones aplicando rango de fechas y/o tipo específico de alerta.
         
-        # Endpoint general
-        return {"ok": True, **_lista("/notificaciones")}
-
+        Parámetros:
+        - fecha_inicio (str, opcional): Fecha de inicio del filtro (formato ISO/cadena).
+        - fecha_fin (str, opcional): Fecha de fin del filtro (formato ISO/cadena).
+        - tipo (str, opcional): Tipo de notificación/alerta a filtrar.
+        
+        No modifica información.
+        """
+        params = _filtros(inicio=fecha_inicio, fin=fecha_fin, tipo=tipo)
+        return {"ok": True, **_lista("/notificaciones/filtrar", params)}
 
     @mcp.tool()
     @_manejar_errores
     def consultar_conteo_notificaciones_no_leidas() -> dict:
-        """Obtiene la cantidad exacta de notificaciones pendientes por leer."""
+        """
+        Obtiene la cantidad exacta (conteo numérico) de notificaciones pendientes por leer del usuario.
+        
+        No modifica información.
+        """
         datos = _get("/notificaciones/no-leidas/count")
-        # El endpoint probablemente devuelva un número o un objeto {"count": X}
-        # Lo normalizamos para el LLM
         if isinstance(datos, dict) and "count" in datos:
             conteo = datos["count"]
         elif isinstance(datos, (int, str)):
