@@ -1,222 +1,116 @@
-"""
-Servidor MCP de integración con el backend ga-ms-inventario (SENA).
-Expone consultas de solo-lectura sobre catálogo, inventario, presupuesto,
-compras y operaciones de instructores.
-
-Endpoints verificados contra los @RequestMapping de los controllers Spring Boot.
-Todas las rutas cuelgan de /api/v1 (ver API_PREFIX).
-"""
-
-import functools
-import os
-from typing import Optional
-
-import requests
 from mcp.server.fastmcp import FastMCP
+import httpx
+from fastmcp import FastMCP
 
-# --- Configuración: desde el entorno, con default local (inventario = 8081) ---
-API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8081").rstrip("/")
-API_PREFIX = "/api/v1"                 # prefijo común de TODOS los controllers
-API_TOKEN = os.environ.get("API_TOKEN")  # opcional, listo para cuando el backend lo pida
-TIMEOUT = 10
-
-# --- Session única: reusa conexión TCP y centraliza headers/auth ---
-_session = requests.Session()
-if API_TOKEN:
-    _session.headers["Authorization"] = f"Bearer {API_TOKEN}"
-
-
-def _get(path: str, params: Optional[dict] = None) -> dict:
-    """Punto único de salida HTTP. Aquí viven el prefijo, el timeout y el raise."""
-    resp = _session.get(f"{API_BASE_URL}{API_PREFIX}{path}", params=params, timeout=TIMEOUT)
-    resp.raise_for_status()
-    return resp.json()
-
-
-def _manejar_errores(fn):
-    """Traduce excepciones a respuestas honestas (no todo es 'error de conexión')."""
-    @functools.wraps(fn)
-    def wrapper(*args, **kwargs):
-        try:
-            return fn(*args, **kwargs)
-        except ValueError as e:                       # regla de negocio (código inexistente)
-            return {"ok": False, "error": str(e)}
-        except requests.HTTPError as e:
-            return {"ok": False, "error": f"La API respondió {e.response.status_code}"}
-        except requests.RequestException as e:
-            return {"ok": False, "error": f"Fallo de conexión: {e}"}
-    return wrapper
-
-
-def _buscar_productos(params: dict) -> tuple[list, int]:
-    """Fuente única de verdad para GET /catalog/productos (respuesta paginada).
-
-    Devuelve (items_de_la_pagina, total_real, total_paginas). El total sale de
-    'totalElements' del backend; si no viene, cae al tamaño de la página.
-    """
-    datos = _get("/catalog/productos", params)
-    items = datos.get("content", [])
-    total = datos.get("totalElements", len(items))
-    total_paginas = datos.get("totalPages", 1)
-    return items, total, total_paginas
-
-
-def _uuid_por_codigo(codigo_sena: str) -> str:
-    """Resuelve el UUID interno a partir del código SENA. Regla de negocio oculta al LLM."""
-    productos, _, _ = _buscar_productos({"codigoSena": codigo_sena})
-    if productos:
-        return productos[0]["id"]
-    raise ValueError(f"El código SENA '{codigo_sena}' no existe en el catálogo.")
+BASE_URL = "http://localhost:8081/api/v1"
 
 
 def register(mcp: FastMCP):
 
-    # ---------- CATÁLOGO ----------
     @mcp.tool()
-    @_manejar_errores
-    def consultar_catalogo(
-        codigo_sena: Optional[str] = None,
-        nombre: Optional[str] = None,
-        categoria: Optional[str] = None,
-        pagina: int = 0,
-    ) -> dict:
-        """Busca bienes en el catálogo del SENA por código SENA, nombre o categoría.
+    async def consultar_stock(producto_id: str) -> dict:
+        """Consulta el stock actual de un producto por su ID o código SENA.
 
-        El resultado viene paginado: 'total' es la cantidad real de bienes,
-        'datos' es la página actual. Si 'hay_mas' es True, pedí la siguiente
-        con 'pagina' (0 = primera página).
+        Args:
+            producto_id: El código SENA o ID del producto (ej. 'PROD-001').
         """
-        params = {"page": pagina}
-        if codigo_sena:
-            params["codigoSena"] = codigo_sena
-        if nombre:
-            params["nombre"] = nombre
-        if categoria:
-            params["categoria"] = categoria
-        productos, total, total_paginas = _buscar_productos(params)
-        return {
-            "ok": True,
-            "total": total,
-            "mostrados": len(productos),
-            "pagina": pagina,
-            "hay_mas": pagina < total_paginas - 1,
-            "datos": productos,
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{BASE_URL}/inventory/existencias/{producto_id}")
+            if response.status_code == 404:
+                return {"error": f"Producto '{producto_id}' no encontrado"}
+            return response.json()
+
+    @mcp.tool()
+    async def listar_productos_bajos() -> list:
+        """Lista todos los productos que están por debajo del stock mínimo."""
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{BASE_URL}/inventory/existencias/bajo-minimo")
+            return response.json()
+
+    @mcp.tool()
+    async def listar_catalogo() -> list:
+        """Lista todos los productos del catálogo con sus existencias actuales."""
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{BASE_URL}/catalog/productos")
+            return response.json()
+
+    @mcp.tool()
+    async def registrar_entrada(
+        producto_id: str,
+        cantidad: float,
+        precio_unitario: float,
+        factura_id: str = None,
+        proveedor_nit: str = None,
+        gil_id: str = None,
+        conciliacion_id: str = None,
+    ) -> dict:
+        """Registra una entrada de stock para un producto.
+
+        Args:
+            producto_id: Código SENA del producto (ej. 'PROD-001').
+            cantidad: Cantidad a ingresar al inventario.
+            precio_unitario: Precio unitario del producto.
+            factura_id: ID de la factura asociada (opcional).
+            proveedor_nit: NIT del proveedor (opcional).
+            gil_id: ID del GIL asociado (opcional).
+            conciliacion_id: ID de conciliación (opcional).
+        """
+        body = {
+            "productoId": producto_id,
+            "cantidad": cantidad,
+            "precioUnitario": precio_unitario,
+            "facturaId": factura_id,
+            "proveedorNit": proveedor_nit,
+            "gilId": gil_id,
+            "conciliacionId": conciliacion_id,
         }
-
-    # ---------- INVENTARIO (una tool = una intención) ----------
-    @mcp.tool()
-    @_manejar_errores
-    def consultar_existencias(codigo_sena: str) -> dict:
-        """Devuelve el stock físico actual de un bien por su código SENA."""
-        uuid = _uuid_por_codigo(codigo_sena)
-        stock = _get(f"/inventory/existencias/{uuid}")
-        stock.pop("productoId", None)
-        return {"ok": True, "codigo_sena": codigo_sena, "stock": stock}
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{BASE_URL}/inventory/movimientos/entrada", json=body
+            )
+            if response.status_code not in (200, 201):
+                return {"error": response.text, "status": response.status_code}
+            return response.json()
 
     @mcp.tool()
-    @_manejar_errores
-    def consultar_kardex(codigo_sena: str) -> dict:
-        """Devuelve el historial valorizado de movimientos (Kardex) de un bien."""
-        uuid = _uuid_por_codigo(codigo_sena)
-        kardex = _get("/reporting/kardex", {"productoId": uuid})
-        return {"ok": True, "codigo_sena": codigo_sena, "kardex": kardex}
-
-    @mcp.tool()
-    @_manejar_errores
-    def consultar_alertas_stock() -> dict:
-        """Devuelve los bienes con existencias por debajo del mínimo (alertas globales)."""
-        return {"ok": True, "alertas": _get("/inventory/existencias/bajo-minimo")}
-
-    # ---------- PRESUPUESTO ----------
-    @mcp.tool()
-    @_manejar_errores
-    def consultar_resumen_presupuesto(vigencia: int) -> dict:
-        """Saldos presupuestales globales de una vigencia."""
-        return {"ok": True, "resumen": _get("/budget/presupuestos/resumen", {"vigencia": vigencia})}
-
-    @mcp.tool()
-    @_manejar_errores
-    def consultar_ejecucion_presupuesto(
-        ficha_id: Optional[str] = None,
-        vigencia: Optional[int] = None,
+    async def registrar_salida(
+        producto_id: str,
+        cantidad: float,
+        instructor_id: str,
+        categoria: str,
+        requisicion_id: str = None,
     ) -> dict:
-        """Ejecución presupuestal (rubros comprometidos), filtrable por ficha y vigencia."""
-        params = {}
-        if ficha_id:
-            params["fichaId"] = ficha_id
-        if vigencia:
-            params["vigencia"] = vigencia
-        return {"ok": True, "ejecucion": _get("/reporting/ejecucion-presupuestal", params)}
+        """Registra una salida de stock para un producto.
 
-    # ---------- COMPRAS / FACTURACIÓN ----------
-    @mcp.tool()
-    @_manejar_errores
-    def consultar_facturas(
-        nit_proveedor: Optional[str] = None,
-        estado: Optional[str] = None,
-    ) -> dict:
-        """Lista facturas filtrando por estado (REGISTRADA|VERIFICADA|PAGADA|ANULADA) o NIT del proveedor."""
-        params = {}
-        if nit_proveedor:
-            params["proveedorNit"] = nit_proveedor
-        if estado:
-            params["estado"] = estado
-        datos = _get("/sourcing/facturas", params)
-        return {"ok": True, "facturas": datos.get("content", [])}
+        Args:
+            producto_id: Código SENA del producto (ej. 'PROD-001').
+            cantidad: Cantidad a retirar del inventario.
+            instructor_id: ID del instructor que solicita la salida.
+            categoria: Categoría del producto. Valores: 'ABARROTES', 'LACTEOS', 'FRUTAS_Y_VEGETALES', 'CARNES_PESCADOS_MARISCOS'.
+            requisicion_id: ID de la requisición asociada (opcional).
+        """
+        categorias_validas = ["ABARROTES", "LACTEOS", "FRUTAS_Y_VEGETALES", "CARNES_PESCADOS_MARISCOS"]
+        if categoria not in categorias_validas:
+            return {"error": f"Categoría inválida. Use: {categorias_validas}"}
 
-    @mcp.tool()
-    @_manejar_errores
-    def consultar_resumen_compras() -> dict:
-        """Resumen de compras: montos totales pagados vs anulados."""
-        return {"ok": True, "resumen_compras": _get("/sourcing/facturas/resumen")}
-
-    # ---------- OPERACIONES DE INSTRUCTORES ----------
-    @mcp.tool()
-    @_manejar_errores
-    def consultar_alertas(destinatario_id: Optional[str] = None) -> dict:
-        """Resumen de alertas, filtrable por destinatario (solo acepta destinatarioId)."""
-        params = {"destinatarioId": destinatario_id} if destinatario_id else {}
-        return {"ok": True, "datos": _get("/reporting/alertas/resumen", params)}
+        body = {
+            "productoId": producto_id,
+            "cantidad": cantidad,
+            "requisicionId": requisicion_id,
+            "instructorId": instructor_id,
+            "categoria": categoria,
+        }
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{BASE_URL}/inventory/movimientos/salida", json=body
+            )
+            if response.status_code not in (200, 201):
+                return {"error": response.text, "status": response.status_code}
+            return response.json()
 
     @mcp.tool()
-    @_manejar_errores
-    def consultar_consumos(
-        instructor_id: Optional[str] = None,
-        ficha_id: Optional[str] = None,
-    ) -> dict:
-        """Consumos registrados, filtrables por instructor o ficha."""
-        params = {}
-        if instructor_id:
-            params["instructorId"] = instructor_id
-        if ficha_id:
-            params["fichaId"] = ficha_id
-        return {"ok": True, "datos": _get("/reporting/consumo", params)}
-
-    @mcp.tool()
-    @_manejar_errores
-    def consultar_requisiciones(
-        instructor_id: Optional[str] = None,
-        ficha_id: Optional[str] = None,
-        estado: Optional[str] = None,
-    ) -> dict:
-        """Requisiciones de legalización, filtrables por instructor, ficha o estado."""
-        params = {}
-        if instructor_id:
-            params["instructorId"] = instructor_id
-        if ficha_id:
-            params["fichaId"] = ficha_id
-        if estado:
-            params["estado"] = estado
-        return {"ok": True, "datos": _get("/legalization/requisiciones", params)}
-
-    @mcp.tool()
-    @_manejar_errores
-    def consultar_conciliaciones(estado: str = "CERRADA") -> dict:
-        """Conciliaciones, filtrables por estado (por defecto CERRADA)."""
-        return {"ok": True, "datos": _get("/reconciliation/conciliaciones", {"estado": estado})}
-
-
-if __name__ == "__main__":
-    servidor = FastMCP("IntegracionBackendSENA")
-    register(servidor)
-    servidor.run()
+    async def listar_movimientos() -> list:
+        """Lista todos los movimientos de inventario (entradas y salidas)."""
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{BASE_URL}/inventory/movimientos/todos")
+            return response.json()
